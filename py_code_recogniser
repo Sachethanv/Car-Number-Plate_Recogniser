@@ -1,0 +1,195 @@
+rom ultralytics import YOLO
+import cv2
+import os
+import easyocr
+import re
+import string
+import csv
+from datetime import datetime
+
+cap=cv2.VideoCapture("1225.mp4")
+#model =YOLO("yolov8n.pt")
+nameplate_crop=[]
+currentTime=datetime.now().time()
+
+dict_char_to_int = {'O': '0',
+                    'I': '1',
+                    'J': '3',
+                    'A': '4',
+                    'G': '6',
+                    'S': '5',
+                    'L': '4'}
+
+dict_int_to_char = {'0': 'O',
+                    '1': 'I',
+                    '3': 'J',
+                    '4': 'A',
+                    '6': 'G',
+                    '5': 'S',
+                     "H" :"M" }
+
+# Define a function to remove special characters
+def remove_special_characters(s):
+    # Define a list of characters that are not special characters
+    allowed_characters = string.ascii_letters + string.digits + string.whitespace
+    # Use list comprehension to filter out special characters
+    filtered_text = ''.join(char for char in s if char in allowed_characters)
+    return filtered_text
+
+#
+    
+    
+
+
+def format_licenseplate(text):
+    """
+    Format the license plate text by converting characters using the mapping dictionaries.
+
+    Args:
+        text (str): License plate text.
+
+    Returns:
+        str: Formatted license plate text.
+    """
+    filtered_text = re.sub(r'[^A-Za-z0-9]+', '', text)
+     
+    length=len(filtered_text)
+    text=remove_special_characters(filtered_text)
+    
+    license_plate_ = ''
+    if length==10:
+        mapping = {0: dict_int_to_char, 1: dict_int_to_char, 4: dict_int_to_char, 5: dict_int_to_char, 6: dict_char_to_int,
+                2: dict_char_to_int, 3: dict_char_to_int,7: dict_char_to_int,8: dict_char_to_int,9:dict_char_to_int}
+        for j in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]:
+            if text[j] in mapping[j].keys():
+                license_plate_ += mapping[j][text[j]]
+            else:
+                license_plate_ += text[j]
+    elif length==9:
+         mapping = {0: dict_int_to_char, 1: dict_int_to_char, 4: dict_int_to_char, 5: dict_char_to_int, 6: dict_char_to_int,
+                2: dict_char_to_int, 3: dict_char_to_int,7: dict_char_to_int,8: dict_char_to_int}
+         for j in [0, 1, 2, 3, 4, 5, 6, 7, 8]:
+            if text[j] in mapping[j].keys():
+                license_plate_ += mapping[j][text[j]]
+            else:
+                license_plate_ += text[j]
+  
+       
+    return license_plate_
+
+def cropped_image(image_input):
+    #cv2.imshow('Original Image', image_input)
+# Load the image
+    image = cv2.imread(image_input)
+
+# Get the dimensions of the image
+    height, width, _ = image.shape
+
+# Calculate the cropping margins (10% of the dimensions)
+    crop_margin_height = int(height * 0.1)
+    crop_margin_width = int(width * 0.1)
+
+# Define the coordinates for cropping
+    x_start = crop_margin_width
+    x_end = width - crop_margin_width
+    y_start = crop_margin_height
+    y_end = height - crop_margin_height
+
+# Crop the image using array slicing
+    cropped_image = image[y_start:y_end, x_start:x_end]
+
+# Display the original and cropped images
+    cv2.imshow('Original Image', image_input)
+    cv2.imshow('Cropped Image', cropped_image)
+    cv2.waitKey(0)  # Wait for a key press to close the windows
+    cv2.destroyAllWindows()
+
+# Save the cropped image (optional)
+    cv2.imwrite('cropped_image.jpg', cropped_image)
+    return cropped_image
+
+
+
+def Detect_nameplates(resultvalue):
+    reader = easyocr.Reader(['en','en'])
+    for eachitems in resultvalue :
+        gray_image = cv2.cvtColor(eachitems, cv2.COLOR_BGR2GRAY)
+        #cropped_img= cropped_image(gray_image)
+
+        threshold_value = 127
+        max_value = 255
+        ret, binary_inv_image = cv2.threshold(gray_image, threshold_value, max_value, cv2.THRESH_BINARY_INV)
+        
+        #cv2.imshow(winname="abc",mat=gray_image)
+        #key=cv2.waitKey(0)
+        #cv2.imshow(winname="abc",mat=binary_inv_image)
+        #key=cv2.waitKey(0)
+        filename = 'Nameplates125.csv'
+        detections = reader.readtext(binary_inv_image)
+        file_exists = os.path.isfile(filename)
+        file_empty = os.path.getsize(filename) == 0 if file_exists else True
+        
+        for items in detections:
+            with open(filename, 'a',newline='') as file:
+                writer = csv.writer(file)
+                bbox,text_id,score = items
+                fieldnames = ['RegistrationNumber','Score']
+               # writer = csv.DictWriter(file, fieldnames=fieldnames)
+                if file_empty:
+                    writer.writeheader()
+                
+                #writer.writerow([text_id,score])
+                Formated_text=format_licenseplate(text_id)
+                if Formated_text!="" :
+                    Formated_text=Formated_text.upper()
+                    writer.writerow([Formated_text,score,currentTime])
+                        #wrtite text onto CSV file
+                    #WriteCSV(bbox,text_id,score)
+                #print("The registration number is  " + text_id)
+                #print("The registration number after formating   " + Formated_text)
+            file.close  
+  
+
+
+
+
+
+
+model_path = os.path.join('.', 'runs', 'detect', 'train', 'weights', 'Nameplate125.pt')
+model =YOLO(model_path)
+#cap=cv2.VideoCapture("12125.mp4")
+result_value=[]
+vehicles=[2,3,4,5]
+ret=True
+itemnum=0
+frame_num=-1
+
+while ret:
+    frame_num +=1
+    ret,frame=cap.read()
+    if ret :
+        detections =model(frame)[0]
+       
+
+        for detection in detections.boxes.data.tolist():
+            x1,y1,x2,y2,score,class_id=detection
+            
+            if int(class_id) == 0 :
+                itemnum =itemnum +1
+                result_value.append([x1,y1,x2,y2,score,class_id])
+                #print("take a look at the" +str(itemnum) + "co-ordinates -" + str(x1) +str(y1) +str(x2) +str(y2))  
+                nameplate_crop.append(frame[int(y1):int(y2),int(x1):int(x2)])
+                #nameplate_crop_grey=cv2.threshold(nameplate_crop,cv2.COLOR_BGR2GRAY,maxval=0.0,type=2)
+               
+               
+                
+                #_,nameplate_crop_thresold = cv2.threshold(nameplate_crop_grey,64,255,cv2.THRESH_BINARY_INV,ma)
+                #cv2.imshow(winname="abc",mat=nameplate_crop)
+                #key=cv2.waitKey(0)
+                #cv2.imshow( winname="BBC",mat=nameplate_crop_grey)
+
+
+
+Detect_nameplates(nameplate_crop)         
+
+
